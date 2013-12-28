@@ -9,12 +9,21 @@
 Ruby library to provide server side functionality for elFinder.  elFinder is an
 open-source file manager for web, written in JavaScript using jQuery UI.
 
-## Note regarding 2.x API:
+## 2.x API support:
 
-8 months ago I said: FYI, I'm working on a pure 2.x API implementation.  Nothing to release yet, and the holidays are in the way,
-but wanted to "get the word out."
+This is an attempt to implement elFinder 2.x API, currently implemented commands:
 
-Today: No update :/
+* open
+* file
+* rm
+* mkdir
+* upload
+
+Todo:
+
+* tests (currently no tests for 2.x API)
+* implement missing API commands
+* implement permissions/options
 
 ## Requirements:
 
