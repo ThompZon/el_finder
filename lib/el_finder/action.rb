@@ -10,9 +10,13 @@ module ElFinder
   module ActionClass
     def el_finder(name = :elfinder, &block)
       self.send(:define_method, name) do
-        h, r = ElFinder::Connector.new(instance_eval(&block)).run(params)
+        h, r, f = ElFinder::Connector.new(instance_eval(&block)).run(params)
         headers.merge!(h)
-        render (r.empty? ? {:nothing => true} : {:text => r.to_json}), :layout => false
+        if f
+          send_file f[:path]
+        else
+          render (r.empty? ? {:nothing => true} : {:json => r.to_json}), :layout => false
+        end
       end
     end
   end

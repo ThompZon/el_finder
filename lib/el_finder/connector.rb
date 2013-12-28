@@ -11,7 +11,7 @@ module ElFinder
 
     # Valid commands to run.
     # @see #run
-    VALID_COMMANDS = %w[archive duplicate edit extract mkdir mkfile open paste ping read rename resize rm tmb upload]
+    VALID_COMMANDS = %w[archive duplicate edit extract file mkdir mkfile open parents paste ping read rename resize rm tmb upload]
 
     # Default options for instances.
     # @see #initialize
@@ -43,12 +43,14 @@ module ElFinder
     def initialize(options)
       @options = DEFAULT_OPTIONS.merge(options)
 
-      raise(ArgumentError, "Missing required :url option") unless @options.key?(:url)
-      raise(ArgumentError, "Missing required :root option") unless @options.key?(:root)
+      raise(ArgumentError, "Missing required :volumes option") unless @options.key?(:volumes)
+      # raise(ArgumentError, "Missing required :url option") unless @options.key?(:url)
+      # raise(ArgumentError, "Missing required :root option") unless @options.key?(:root)
       raise(ArgumentError, "Mime Handler is invalid") unless mime_handler.respond_to?(:for)
       raise(ArgumentError, "Image Handler is invalid") unless image_handler.nil? || ([:size, :resize, :thumbnail].all?{|m| image_handler.respond_to?(m)})
 
-      @root = ElFinder::Pathname.new(options[:root])
+      @volumes = options[:volumes].map{|volume| volume.is_a?(Hash) ? Volume.new(volume) : volume}
+      # @root = ElFinder::Pathname.new(options[:root])
 
       @headers = {}
       @response = {}
@@ -63,6 +65,7 @@ module ElFinder
       @headers = {}
       @response = {}
       @response[:errorData] = {}
+      @file = nil
 
       if VALID_COMMANDS.include?(@params[:cmd])
 
@@ -73,10 +76,10 @@ module ElFinder
         end
 
         @current = @params[:current] ? from_hash(@params[:current]) : nil
-        @target = (@params[:target] and !@params[:target].empty?) ? from_hash(@params[:target]) : nil
-        if params[:targets]
-          @targets = @params[:targets].map{|t| from_hash(t)}
-        end
+        @volume, @target = (@params[:target] and !@params[:target].empty?) ? from_hash(@params[:target]) : [nil, nil]
+        # if params[:targets]
+        #   @targets = @params[:targets].map{|t| @volume.decode(t)}
+        # end
 
         send("_#{@params[:cmd]}")
       else
@@ -85,7 +88,7 @@ module ElFinder
 
       @response.delete(:errorData) if @response[:errorData].empty?
 
-      return @headers, @response
+      return @headers, @response, @file
     end # of run
 
     #
@@ -96,19 +99,26 @@ module ElFinder
 
     #
     def from_hash(hash)
-      # restore missing '='
-      len = hash.length % 4
-      hash += '==' if len == 1 or len == 2
-      hash += '='  if len == 3
-
-      decoded_hash = Base64.urlsafe_decode64(hash)
-      decoded_hash = decoded_hash.respond_to?(:force_encoding) ? decoded_hash.force_encoding('utf-8') : decoded_hash
-      pathname = @root + decoded_hash
-    rescue ArgumentError => e
-      if e.message != 'invalid base64'
-        raise
+      volume = @volumes.find{|v| v.contains?(hash)}
+      if volume
+        [volume, volume.decode(hash)]
+      else
+        @response[:error] = 'errFileNotFound'
+        nil
       end
-      nil
+      # restore missing '='
+    #   len = hash.length % 4
+    #   hash += '==' if len == 1 or len == 2
+    #   hash += '='  if len == 3
+
+    #   decoded_hash = Base64.urlsafe_decode64(hash)
+    #   decoded_hash = decoded_hash.respond_to?(:force_encoding) ? decoded_hash.force_encoding('utf-8') : decoded_hash
+    #   pathname = @root + decoded_hash
+    # rescue ArgumentError => e
+    #   if e.message != 'invalid base64'
+    #     raise
+    #   end
+    #   nil
     end # of from_hash
 
     # @!attribute [w] options
@@ -126,11 +136,22 @@ module ElFinder
     protected
 
     #
-    def _open(target = nil)
+    def _open(volume = nil, target = nil)
+      if @params[:init]
+        _open_init
+        return
+      end
+
+      volume ||= @volume
       target ||= @target
 
+      if volume.nil?
+        _open(@volumes[0])
+        return
+      end
+
       if target.nil?
-        _open(@root)
+        _open(volume, '.')
         return
       end
 
@@ -142,20 +163,23 @@ module ElFinder
       if target.file?
         command_not_implemented
       elsif target.directory?
-        @response[:cwd] = cwd_for(target)
-        @response[:cdc] = target.children.
-          reject{ |child| perms_for(child)[:hidden]}.
-          sort_by{|e| e.basename.to_s.downcase}.map{|e| cdc_for(e)}.compact
+        @response[:cwd] = volume.cwd(target)
+        @response[:files] = volume.files(target)
 
-        if @params[:tree]
-          @response[:tree] = {
-            :name => @options[:home],
-            :hash => to_hash(@root),
-            :dirs => tree_for(@root),
-          }.merge(perms_for(@root))
-        end
+        # @response[:cdc] = target.children.
+        #   reject{ |child| perms_for(child)[:hidden]}.
+        #   sort_by{|e| e.basename.to_s.downcase}.map{|e| cdc_for(e)}.compact
+
+        # if @params[:tree]
+        #   @response[:tree] = {
+        #     :name => @options[:home],
+        #     :hash => to_hash(@root),
+        #     :dirs => tree_for(@root),
+        #   }.merge(perms_for(@root))
+        # end
 
         if @params[:init]
+          @response[:api] = 2.0
           @response[:disabled] = @options[:disabled_commands]
           @response[:params] = {
             :dotFiles => @options[:allow_dot_files],
@@ -174,20 +198,38 @@ module ElFinder
     end # of open
 
     #
-    def _mkdir
-      if perms_for(@current)[:write] == false
-        @response[:error] = 'Access Denied'
-        return
-      end
+    def _open_init
+      @response[:api] = 2.0
+      @response[:cwd] = @volumes[0].cwd
 
-      dir = @current + @params[:name]
-      if !dir.exist? && dir.mkdir
-        @params[:tree] = true
-        @response[:select] = [to_hash(dir)]
-        _open(@current)
-      else
-        @response[:error] = "Unable to create folder"
-      end
+      files = []
+      @volumes.each{|v| files.concat(v.files())}
+      @response[:files] = files
+    end # of open_init
+
+    #
+    def _parents
+      # @response[:tree] = []
+      @response[:error] = 'errAccess'
+    end
+
+    #
+    def _mkdir
+      response = @volume.mkdir(@target, @params[:name])
+      @response.merge!(response)
+      # if perms_for(@current)[:write] == false
+      #   @response[:error] = 'Access Denied'
+      #   return
+      # end
+
+      # dir = @current + @params[:name]
+      # if !dir.exist? && dir.mkdir
+      #   @params[:tree] = true
+      #   @response[:select] = [to_hash(dir)]
+      #   _open(@current)
+      # else
+      #   @response[:error] = "Unable to create folder"
+      # end
     end # of mkdir
 
     #
@@ -235,31 +277,38 @@ module ElFinder
 
     #
     def _upload
-      if perms_for(@current)[:write] == false
-        @response[:error] = 'Access Denied'
-        return
+      if @volume && @target
+        response = @volume.upload(@target, @params[:upload])
+        @response.merge!(response)
+        # _open(@volume, @target)
+      else
+        @response[:error] = "errUploadCommon"
       end
-      select = []
-      @params[:upload].to_a.each do |file|
-        if file.respond_to?(:tempfile)
-          the_file = file.tempfile
-        else
-          the_file = file
-        end
-        if upload_max_size_in_bytes > 0 && File.size(the_file.path) > upload_max_size_in_bytes
-          @response[:error] ||= "Some files were not uploaded"
-          @response[:errorData][@options[:original_filename_method].call(file)] = 'File exceeds the maximum allowed filesize'
-        else
-          dst = @current + @options[:original_filename_method].call(file)
-          the_file.close
-          src = the_file.path
-          FileUtils.mv(src, dst.fullpath)
-          FileUtils.chmod @options[:upload_file_mode], dst
-          select << to_hash(dst)
-        end
-      end
-      @response[:select] = select unless select.empty?
-      _open(@current)
+      # if perms_for(@current)[:write] == false
+      #   @response[:error] = 'Access Denied'
+      #   return
+      # end
+      # select = []
+      # @params[:upload].to_a.each do |file|
+      #   if file.respond_to?(:tempfile)
+      #     the_file = file.tempfile
+      #   else
+      #     the_file = file
+      #   end
+      #   if upload_max_size_in_bytes > 0 && File.size(the_file.path) > upload_max_size_in_bytes
+      #     @response[:error] ||= "Some files were not uploaded"
+      #     @response[:errorData][@options[:original_filename_method].call(file)] = 'File exceeds the maximum allowed filesize'
+      #   else
+      #     dst = @current + @options[:original_filename_method].call(file)
+      #     the_file.close
+      #     src = the_file.path
+      #     FileUtils.mv(src, dst.fullpath)
+      #     FileUtils.chmod @options[:upload_file_mode], dst
+      #     select << to_hash(dst)
+      #   end
+      # end
+      # @response[:select] = select unless select.empty?
+      # _open(@current)
     end # of upload
 
     #
@@ -303,14 +352,28 @@ module ElFinder
 
     #
     def _rm
-      if @targets.empty?
+      targets = @params[:targets].to_a
+      if targets.empty?
         @response[:error] = "No files were selected for removal"
       else
-        @targets.to_a.each do |target|
-          remove_target(target)
+        removed = []
+        errors = {}
+        targets.each do |target_hash|
+          volume, target = from_hash(target_hash)
+          if volume && target
+            status, hash = volume.rm(target)
+            if status
+              removed << target_hash
+            else
+              errors[target] = 'errRm'
+            end
+          end
         end
-        @params[:tree] = true
-        _open(@current)
+        @response[:removed] = removed unless removed.empty?
+        unless errors.empty?
+          @response[:error] = "Some files were not deleted!"
+          @response[:errorData] = errors
+        end
       end
     end # of rm
 
@@ -345,6 +408,14 @@ module ElFinder
         @response[:error] = 'Access Denied'
       end
     end # of read
+
+    #
+    def _file
+      if @volume && @target
+        path = @volume.pathname(@target)
+        @file = {path: path}
+      end
+    end
 
     #
     def _edit
