@@ -105,7 +105,7 @@ module ElFinder
 
     def path_info(target)
       is_dir = File.directory?(target.realpath)
-      mime = is_dir ? 'directory' : 'file'
+      mime = is_dir ? 'directory' : ElFinder::MimeType.for(target.realpath)
       name = @name if target.is_root?
       name ||= target.basename.to_s
 

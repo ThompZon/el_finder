@@ -50,7 +50,7 @@ module ElFinder
       raise(ArgumentError, "Image Handler is invalid") unless image_handler.nil? || ([:size, :resize, :thumbnail].all?{|m| image_handler.respond_to?(m)})
 
       @volumes = options[:volumes].map{|volume| volume.is_a?(Hash) ? Volume.new(volume) : volume}
-      # @root = ElFinder::Pathname.new(options[:root])
+      @root = ElFinder::Pathname.new(options[:root])
 
       @headers = {}
       @response = {}
@@ -68,7 +68,7 @@ module ElFinder
       @file = nil
 
       if VALID_COMMANDS.include?(@params[:cmd])
-
+    
         if @options[:thumbs]
           @thumb_directory = @root + @options[:thumbs_directory]
           @thumb_directory.mkdir unless @thumb_directory.exist?
@@ -205,6 +205,14 @@ module ElFinder
       files = []
       @volumes.each{|v| files.concat(v.files())}
       @response[:files] = files
+      @response[:disabled] = @options[:disabled_commands]
+      @response[:params] = {
+        :dotFiles => @options[:allow_dot_files],
+        :uplMaxSize => @options[:upload_max_size],
+        :archives => @options[:archivers].keys,
+        :extract => @options[:extractors].keys,
+        :url => @options[:url]
+      }
     end # of open_init
 
     #
