@@ -47,7 +47,7 @@ the defaults.
 * % bundle install
 * Switch to using jQuery instead of Prototype
 * Add `config.assets.precompile += %w( jquery-ui.css elFinder/main.js elFinder/js/elfinder.min.js  elFinder/css/elfinder.min.css)` to config/application.rb
-- Note elFinder version may be in path, it might be easier to debug using elfinder.full.js and css instead of the "min"-versions
+- NOTE: elFinder version may be in path, it might be easier to debug using elfinder.full.js and css instead of the "min"-versions
 * Add the following action to a controller of your choosing.
 
 ```ruby
@@ -123,6 +123,21 @@ on where you installed the various js/css files.
       url: '/elfinder',
       lang: 'en',
       height: 700,
+    })
+  })
+#elfinder
+```
+
+- NOTE: The following is a valid view `index.html.haml`
+```haml
+= stylesheet_link_tag 'jquery-ui', 'elFinder-2.1.26/css/elfinder.min.css'
+= javascript_include_tag "elFinder-2.1.26/js/elfinder.min.js"
+:javascript
+  $().ready(function() { 
+    $('#elfinder').elfinder({ 
+      url: '/elfinder',
+      lang: 'en',
+      height: 700
     })
   })
 #elfinder
