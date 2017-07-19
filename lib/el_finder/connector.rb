@@ -181,7 +181,7 @@ module ElFinder
         if @params[:init]
           @response[:api] = 2.0
           @response[:disabled] = @options[:disabled_commands]
-          @response[:params] = {
+          @response[:options] = {
             :dotFiles => @options[:allow_dot_files],
             :uplMaxSize => @options[:upload_max_size],
             :archives => @options[:archivers].keys,
@@ -206,7 +206,7 @@ module ElFinder
       @volumes.each{|v| files.concat(v.files())}
       @response[:files] = files
       @response[:disabled] = @options[:disabled_commands]
-      @response[:params] = {
+      @response[:options] = {
         :dotFiles => @options[:allow_dot_files],
         :uplMaxSize => @options[:upload_max_size],
         :archives => @options[:archivers].keys,
