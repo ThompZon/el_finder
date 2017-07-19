@@ -41,37 +41,57 @@ the defaults.
 * Install ImageMagick (http://www.imagemagick.org/)
 * Do whatever is necessary for your Ruby framework to tie it together.
 
-### Rails 3
+### Rails 4
 
-* Add `gem 'el_finder'` to Gemfile
+* Add `gem 'el_finder', git: "https://github.com/ThompZon/el_finder.git", :branch => 'api-v2'` to Gemfile
 * % bundle install
 * Switch to using jQuery instead of Prototype
+* Add `config.assets.precompile += %w( jquery-ui.css elFinder/main.js elFinder/js/elfinder.min.js  elFinder/css/elfinder.min.css)` to config/application.rb
+- Note elFinder version may be in path, it might be easier to debug using elfinder.full.js and css instead of the "min"-versions
 * Add the following action to a controller of your choosing.
 
 ```ruby
   skip_before_filter :verify_authenticity_token, :only => ['elfinder']
 
+  def index
+  end
+
   def elfinder
     h, r = ElFinder::Connector.new(
-      :root => File.join(Rails.public_path, 'system', 'elfinder'),
+      :root => File.join(Rails.public_path, 'public'),
       :url => '/system/elfinder',
-       :perms => {
-         /^(Welcome|README)$/ => {:read => true, :write => false, :rm => false},
-         '.' => {:read => true, :write => false, :rm => false}, # '.' is the proper way to specify the home/root directory.
-         /^test$/ => {:read => true, :write => true, :rm => false},
-         'logo.png' => {:read => true},
-         /\.png$/ => {:read => false} # This will cause 'logo.png' to be unreadable.  
-                                      # Permissions err on the safe side. Once false, always false.
-       },
-       :extractors => { 
-         'application/zip' => ['unzip', '-qq', '-o'], # Each argument will be shellescaped (also true for archivers)
-         'application/x-gzip' => ['tar', '-xzf'],
-       },
-       :archivers => { 
-         'application/zip' => ['.zip', 'zip', '-qr9'], # Note first argument is archive extension
-         'application/x-gzip' => ['.tgz', 'tar', '-czf'],
-         },
-
+      :perms => {
+        /^(Welcome|README)$/ => {:read => true, :write => false, :rm => false},
+        '.' => {:read => true, :write => false, :rm => false}, # '.' is the proper way to specify the home/root directory.
+        /^test$/ => {:read => true, :write => true, :rm => false},
+        'logo.png' => {:read => true},
+        /\.png$/ => {:read => false} # This will cause 'logo.png' to be unreadable.  
+                                     # Permissions err on the safe side. Once false, always false.
+      },
+      :extractors => { 
+        'application/zip' => ['unzip', '-qq', '-o'], # Each argument will be shellescaped (also true for archivers)
+        'application/x-gzip' => ['tar', '-xzf'],
+      },
+      :archivers => { 
+        'application/zip' => ['.zip', 'zip', '-qr9'], # Note first argument is archive extension
+        'application/x-gzip' => ['.tgz', 'tar', '-czf'],
+        },
+      :tree_sub_folders => true,
+      #adds {Rails.root}/public/uploads as "root" volume, named "uploads" in the GUI
+      :volumes => [{:id => "root", :name => "uploads", :root => File.join(Rails.root, 'public', 'uploads'), :url => "files/"}],
+      :mime_handler => ElFinder::MimeType,
+      :image_handler => ElFinder::Image,
+      :original_filename_method => lambda { |file| file.original_filename.respond_to?(:force_encoding) ? file.original_filename.force_encoding('utf-8') : file.original_filename },
+      :disabled_commands => [],
+      :allow_dot_files => true,
+      :upload_max_size => '50M',
+      :upload_file_mode => 0644,
+      :home => 'Home',
+      :default_perms => { :read => true, :write => true, :rm => true, :hidden => false },
+      :thumbs => false,
+      :thumbs_directory => '.thumbs',
+      :thumbs_size => 48,
+      :thumbs_at_once => 5,
     ).run(params)
 
     headers.merge!(h)
@@ -80,65 +100,32 @@ the defaults.
   end
 ```
 
-* Or, use ElFinder::Action and el_finder, which handles most of the boilerplate for an ElFinder action:
-
-```ruby
-  require 'el_finder/action'
-
-  class MyController < ApplicationController
-    include ElFinder::Action
-
-    el_finder(:action_name) do
-      {
-        :root => File.join(Rails.public_path, 'system', 'elfinder'),
-        :url => '/system/elfinder',
-         :perms => {
-           /^(Welcome|README)$/ => {:read => true, :write => false, :rm => false},
-           '.' => {:read => true, :write => false, :rm => false}, # '.' is the proper way to specify the home/root directory.
-           /^test$/ => {:read => true, :write => true, :rm => false},
-           'logo.png' => {:read => true},
-           /\.png$/ => {:read => false} # This will cause 'logo.png' to be unreadable.  
-                                        # Permissions err on the safe side. Once false, always false.
-        },
-        :extractors => { 
-          'application/zip' => ['unzip', '-qq', '-o'], # Each argument will be shellescaped (also true for archivers)
-          'application/x-gzip' => ['tar', '-xzf'],
-        },
-        :archivers => { 
-          'application/zip' => ['.zip', 'zip', '-qr9'], # Note first argument is archive extension
-          'application/x-gzip' => ['.tgz', 'tar', '-czf'],
-        },
-      }
-    end
-  end
-```
-
 * Add the appropriate route to config/routes.rb such as:
 
 ```ruby
-  match 'elfinder' => 'home#elfinder'
+  match 'elfinder' => 'files#elfinder', via: [:get, :post]
 ```
 
 * Add the following to your layout. The paths may be different depending 
 on where you installed the various js/css files.
 
-```erb
-  <%= stylesheet_link_tag 'jquery-ui/base/jquery.ui.all', 'elfinder' %>
-  <%= javascript_include_tag :defaults, 'elfinder/elfinder.min' %>
+```haml
+= stylesheet_link_tag 'jquery-ui', 'elFinder-2.1.26/css/elfinder.min.css'
+= javascript_include_tag "elFinder-2.1.26/js/elfinder.min.js"
 ```
 
 * Add the following to the view that will display elFinder:
 
-```erb
-  <%= javascript_tag do %>
-    $().ready(function() { 
-      $('#elfinder').elfinder({ 
-        url: '/elfinder',
-        lang: 'en'
-      })
+```haml
+:javascript
+  $().ready(function() { 
+    $('#elfinder').elfinder({ 
+      url: '/elfinder',
+      lang: 'en',
+      height: 700,
     })
-  <% end %>
-  <div id='elfinder'></div>
+  })
+#elfinder
 ```
 
 * That's it.  I think.  If not, check out the example rails application at http://github.com/phallstrom/el_finder-rails-example.
